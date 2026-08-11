@@ -1,8 +1,8 @@
-# aa-property-explorer
+# amino-acid-property-explorer
 
-[![Tests](https://github.com/yiweidavidchen/aa-property-explorer/actions/workflows/tests.yml/badge.svg)](https://github.com/yiweidavidchen/aa-property-explorer/actions/workflows/tests.yml)
+[![Tests](https://github.com/yiweidavidchen/amino-acid-property-explorer/actions/workflows/tests.yml/badge.svg)](https://github.com/yiweidavidchen/amino-acid-property-explorer/actions/workflows/tests.yml)
 
-**[Try it live →](https://yiweidavidchen.github.io/aa-property-explorer/)** — paste a sequence, pick a property, and optionally test a point mutation, right in the browser. No install needed.
+**[Try it live →](https://yiweidavidchen.github.io/amino-acid-property-explorer/)** — paste a sequence, pick a property, and optionally test a point mutation, right in the browser. No install needed.
 
 Visualize amino acid physicochemical properties along a protein sequence,
 or compare whole-sequence composition across two or more proteins.
@@ -84,7 +84,7 @@ exploratory visualization, not as a citable data source in itself.
 ## Repo structure
 
 ```
-aa-property-explorer/
+amino-acid-property-explorer/
   aa_explorer/
     aa_data.py        # property reference table for the 20 standard AAs
     sequence_io.py      # FASTA parsing + sequence validation
