@@ -6,7 +6,7 @@
 <title>amino-acid-property-explorer — live sequence readout</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
   :root {
     --bg-deep: #0B141A;
@@ -219,6 +219,70 @@
     margin-top: 6px;
     line-height: 1.4;
   }
+
+  .wt-readout {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+  .wt-readout .letter {
+    color: var(--amber);
+    font-weight: 700;
+    font-size: 0.95rem;
+  }
+
+  /* ---- sequence map ---- */
+  .seq-map {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 16px;
+    font-family: 'Space Mono', monospace;
+  }
+  .seq-block { display: flex; flex-direction: column; }
+  .seq-block-num {
+    font-size: 0.62rem;
+    color: var(--text-muted);
+    margin-bottom: 3px;
+  }
+  .seq-block-residues { letter-spacing: 2px; font-size: 0.85rem; }
+  .residue {
+    padding: 1px 2px;
+    border-radius: 2px;
+    cursor: default;
+    transition: background 0.1s, color 0.1s;
+  }
+  .residue:hover {
+    background: var(--panel-raised);
+    color: var(--trace);
+    outline: 1px solid var(--border);
+  }
+  .residue.mut-site {
+    background: rgba(232, 183, 94, 0.18);
+    color: var(--amber);
+    font-weight: 700;
+    outline: 1px solid var(--amber);
+  }
+
+  #resTooltip {
+    position: fixed;
+    display: none;
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-primary);
+    line-height: 1.6;
+    pointer-events: none;
+    z-index: 50;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+    max-width: 220px;
+  }
+  #resTooltip .tt-pos { color: var(--amber); font-weight: 700; }
+  #resTooltip .tt-cat { color: var(--trace); }
+
   .error {
     font-family: 'Space Mono', monospace;
     font-size: 0.75rem;
@@ -245,8 +309,9 @@
   .chart-shell {
     position: relative;
     filter: drop-shadow(0 0 10px var(--trace-glow));
+    height: 380px;
   }
-  canvas { max-height: 320px; }
+  canvas { width: 100% !important; }
 
   .sweep {
     position: absolute;
@@ -260,6 +325,25 @@
     from { transform: translateX(-100%); opacity: 1; }
     to   { transform: translateX(250%); opacity: 0; }
   }
+
+  .export-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+    justify-content: flex-end;
+  }
+  .export-btn {
+    background: var(--panel-raised);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.72rem;
+    padding: 7px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .export-btn:hover { color: var(--trace); border-color: var(--trace); }
 
   .radar-row {
     display: grid;
@@ -323,6 +407,11 @@
   <p class="eyebrow">Live readout</p>
   <h1>Trace the <em>chemistry</em> of a chain, residue by residue.</h1>
 
+  <div class="panel" style="margin-bottom: 20px;">
+    <div class="chart-title"><span>Sequence map</span><span id="seqMapMeta"></span></div>
+    <div class="seq-map" id="seqMap"></div>
+  </div>
+
   <div class="layout">
 
     <!-- CONTROL PANEL -->
@@ -356,6 +445,7 @@
             <input type="number" id="mutPos" placeholder="position" min="1">
             <input type="text" id="mutTo" placeholder="to residue" maxlength="1" style="text-transform:uppercase;">
           </div>
+          <div class="wt-readout" id="wtReadout">Enter a position to see the WT residue here.</div>
           <button class="clear-btn" id="clearMut">Clear mutation</button>
         </div>
 
@@ -371,15 +461,19 @@
           <span id="chartMeta"></span>
         </div>
         <div class="chart-shell">
-          <canvas id="lineChart"></canvas>
+          <canvas id="lineChart" height="320"></canvas>
           <div class="sweep" id="sweep"></div>
+        </div>
+        <div class="export-row">
+          <button class="export-btn" id="downloadPng">⬇ PNG</button>
+          <button class="export-btn" id="downloadCsv">⬇ CSV</button>
         </div>
       </div>
 
       <div class="radar-row">
         <div class="panel">
           <div class="chart-title"><span>Composition fingerprint</span></div>
-          <canvas id="radarChart"></canvas>
+          <canvas id="radarChart" height="280"></canvas>
         </div>
 
         <div class="panel">
@@ -399,6 +493,8 @@
   </footer>
 
 </div>
+
+<div id="resTooltip"></div>
 
 <script>
 // ---- amino acid property table (mirrors aa_explorer/aa_data.py) ----
@@ -424,6 +520,37 @@ const AA = {
   Y: { hydropathy: -1.3, volume: 203.6, charge: 0.0,  aromaticity: 1.0, mol_weight: 163.18 },
   V: { hydropathy: 4.2,  volume: 141.7, charge: 0.0,  aromaticity: 0.0, mol_weight: 99.13  },
 };
+
+// three-letter code, full name, and Lehninger-style side-chain category
+// (nonpolar / polar-uncharged / basic / acidic) for the sequence map + tooltips.
+const AA_INFO = {
+  A: { three: "Ala", name: "Alanine",       category: "nonpolar" },
+  R: { three: "Arg", name: "Arginine",      category: "basic" },
+  N: { three: "Asn", name: "Asparagine",    category: "polar uncharged" },
+  D: { three: "Asp", name: "Aspartate",     category: "acidic" },
+  C: { three: "Cys", name: "Cysteine",      category: "polar uncharged" },
+  Q: { three: "Gln", name: "Glutamine",     category: "polar uncharged" },
+  E: { three: "Glu", name: "Glutamate",     category: "acidic" },
+  G: { three: "Gly", name: "Glycine",       category: "nonpolar" },
+  H: { three: "His", name: "Histidine",     category: "basic" },
+  I: { three: "Ile", name: "Isoleucine",    category: "nonpolar" },
+  L: { three: "Leu", name: "Leucine",       category: "nonpolar" },
+  K: { three: "Lys", name: "Lysine",        category: "basic" },
+  M: { three: "Met", name: "Methionine",    category: "nonpolar" },
+  F: { three: "Phe", name: "Phenylalanine", category: "nonpolar" },
+  P: { three: "Pro", name: "Proline",       category: "nonpolar" },
+  S: { three: "Ser", name: "Serine",        category: "polar uncharged" },
+  T: { three: "Thr", name: "Threonine",     category: "polar uncharged" },
+  W: { three: "Trp", name: "Tryptophan",    category: "nonpolar" },
+  Y: { three: "Tyr", name: "Tyrosine",      category: "polar uncharged" },
+  V: { three: "Val", name: "Valine",        category: "nonpolar" },
+};
+const CATEGORY_COLORS = {
+  "nonpolar": "#6EE7C8",
+  "polar uncharged": "#7FB5E8",
+  "basic": "#E8B75E",
+  "acidic": "#FF8B66",
+};
 const FIELD_LABELS = {
   hydropathy: "Hydropathy (Kyte-Doolittle)",
   volume: "Volume (\u00c5\u00b3, Zamyatnin)",
@@ -431,10 +558,20 @@ const FIELD_LABELS = {
   aromaticity: "Aromaticity",
   mol_weight: "Molecular weight (Da)",
 };
+// short forms for the radar chart's vertex labels, where space is tight —
+// full names/units are already shown elsewhere (line chart title, tooltips)
+const FIELD_LABELS_SHORT = {
+  hydropathy: "Hydropathy",
+  volume: "Volume",
+  charge: "Charge",
+  aromaticity: "Aromaticity",
+  mol_weight: "MW",
+};
 const FIELDS = Object.keys(FIELD_LABELS);
 
 let state = { field: "hydropathy", window: 9, mutPos: null, mutTo: null };
 let lineChart, radarChart;
+let currentSeq = "";
 
 function cleanSeq(raw) { return raw.replace(/\s/g, "").toUpperCase(); }
 function validate(seq) {
@@ -470,11 +607,23 @@ function initCharts() {
     ]},
     options: {
       responsive: true,
+      maintainAspectRatio: false,
       animation: { duration: 400 },
       interaction: { mode: "index", intersect: false },
       plugins: {
         legend: { labels: { color: "#6E8791", font: { family: "Space Mono", size: 10 } } },
-        tooltip: { backgroundColor: "#16232C", titleColor: "#E8F0F2", bodyColor: "#6EE7C8", borderColor: "#223038", borderWidth: 1 },
+        tooltip: {
+          backgroundColor: "#16232C", titleColor: "#E8F0F2", bodyColor: "#6EE7C8", borderColor: "#223038", borderWidth: 1,
+          callbacks: {
+            title: (items) => {
+              if (!items.length) return "";
+              const pos = items[0].label;
+              const code = currentSeq[pos - 1];
+              const info = AA_INFO[code];
+              return info ? `${pos} — ${code} (${info.three})` : `${pos}`;
+            },
+          },
+        },
       },
       scales: {
         x: { ticks: { color: "#6E8791", font: { family: "Space Mono", size: 9 }, maxTicksLimit: 20 }, grid: { color: "#1E2E38" } },
@@ -486,7 +635,7 @@ function initCharts() {
   const radarCtx = document.getElementById("radarChart");
   radarChart = new Chart(radarCtx, {
     type: "radar",
-    data: { labels: FIELDS.map(f => FIELD_LABELS[f]), datasets: [
+    data: { labels: FIELDS.map(f => FIELD_LABELS_SHORT[f]), datasets: [
       { label: "composition", data: [], borderColor: "#E8B75E", backgroundColor: "rgba(232,183,94,0.15)", pointBackgroundColor: "#E8B75E", borderWidth: 2 },
     ]},
     options: {
@@ -515,6 +664,7 @@ function render() {
   if (bad.length) { showError(`Unrecognized character(s): ${bad.join(", ")} — only standard one-letter amino acid codes are supported.`); return; }
   showError(null);
 
+  currentSeq = seq;
   document.getElementById("statusText").textContent = `${seq.length} residues loaded`;
 
   // ---- line chart ----
@@ -564,7 +714,111 @@ function render() {
 
   // ---- mutation delta ----
   renderMutation(seq);
+
+  // ---- sequence map (tens-grouped, hoverable) ----
+  renderSeqMap(seq);
+  updateWtReadout(seq);
 }
+
+function renderSeqMap(seq) {
+  const container = document.getElementById("seqMap");
+  const blockSize = 10;
+  let html = "";
+  for (let start = 0; start < seq.length; start += blockSize) {
+    const block = seq.slice(start, start + blockSize);
+    const blockStartPos = start + 1;
+    let residueSpans = "";
+    for (let i = 0; i < block.length; i++) {
+      const pos = blockStartPos + i;
+      const code = block[i];
+      const isMutSite = state.mutPos === pos;
+      residueSpans += `<span class="residue${isMutSite ? " mut-site" : ""}" data-pos="${pos}" data-code="${code}">${code}</span>`;
+    }
+    html += `<div class="seq-block"><div class="seq-block-num">${blockStartPos}</div><div class="seq-block-residues">${residueSpans}</div></div>`;
+  }
+  container.innerHTML = html;
+  document.getElementById("seqMapMeta").textContent = `n=${seq.length}`;
+}
+
+function updateWtReadout(seq) {
+  const el = document.getElementById("wtReadout");
+  if (!state.mutPos) {
+    el.innerHTML = "Enter a position to see the WT residue here.";
+    return;
+  }
+  if (state.mutPos < 1 || state.mutPos > seq.length) {
+    el.innerHTML = `Position must be between 1 and ${seq.length}.`;
+    return;
+  }
+  const wt = seq[state.mutPos - 1];
+  const info = AA_INFO[wt];
+  el.innerHTML = `Position ${state.mutPos} is <span class="letter">${wt}</span> (${info.three}, ${info.name.toLowerCase()})`;
+}
+
+// ---- residue tooltip: shared show/position/hide + mouse and touch support ----
+const tooltip = document.getElementById("resTooltip");
+
+function tooltipContent(code, pos) {
+  const info = AA_INFO[code];
+  const color = CATEGORY_COLORS[info.category];
+  return `<span class="tt-pos">${pos}</span> — ${info.three} (${code})<br>${info.name}<br><span class="tt-cat" style="color:${color}">${info.category}</span>`;
+}
+function positionTooltip(clientX, clientY, aboveOffset = 0) {
+  const offset = 14;
+  let x = clientX + offset;
+  let y = clientY + offset - aboveOffset;
+  if (x + 220 > window.innerWidth) x = clientX - 220 - offset;
+  if (y + 90 > window.innerHeight) y = clientY - 90 - offset;
+  if (y < 4) y = 4;
+  tooltip.style.left = x + "px";
+  tooltip.style.top = y + "px";
+}
+function showTooltip(target, clientX, clientY, aboveOffset = 0) {
+  tooltip.innerHTML = tooltipContent(target.dataset.code, target.dataset.pos);
+  tooltip.style.display = "block";
+  tooltip.dataset.activePos = target.dataset.pos;
+  positionTooltip(clientX, clientY, aboveOffset);
+}
+function hideTooltip() {
+  tooltip.style.display = "none";
+  tooltip.dataset.activePos = "";
+}
+
+const seqMapEl = document.getElementById("seqMap");
+
+// mouse (desktop)
+seqMapEl.addEventListener("mouseover", (e) => {
+  const target = e.target.closest(".residue");
+  if (!target) return;
+  showTooltip(target, e.clientX, e.clientY);
+});
+seqMapEl.addEventListener("mousemove", (e) => {
+  if (tooltip.style.display !== "block") return;
+  positionTooltip(e.clientX, e.clientY);
+});
+seqMapEl.addEventListener("mouseout", (e) => {
+  if (!e.target.closest(".residue")) return;
+  hideTooltip();
+});
+
+// touch (mobile) — tap a residue to show, tap it again (or elsewhere) to hide.
+// Tooltip is positioned above the touch point so the finger doesn't cover it.
+seqMapEl.addEventListener("touchstart", (e) => {
+  const target = e.target.closest(".residue");
+  if (!target) return;
+  e.preventDefault();
+  const touch = e.touches[0];
+  const isSameAndVisible = tooltip.dataset.activePos === target.dataset.pos && tooltip.style.display === "block";
+  if (isSameAndVisible) {
+    hideTooltip();
+  } else {
+    showTooltip(target, touch.clientX, touch.clientY, 70);
+  }
+}, { passive: false });
+
+document.addEventListener("touchstart", (e) => {
+  if (!e.target.closest(".residue")) hideTooltip();
+});
 
 function renderMutation(seq) {
   const wrap = document.getElementById("mutTableWrap");
@@ -600,7 +854,24 @@ function renderMutation(seq) {
 }
 
 // ---- wire up controls ----
+function formatSequenceBlocks(seq, blocksPerRow = 6, blockSize = 10) {
+  const blocks = [];
+  for (let i = 0; i < seq.length; i += blockSize) blocks.push(seq.slice(i, i + blockSize));
+  const rows = [];
+  for (let i = 0; i < blocks.length; i += blocksPerRow) rows.push(blocks.slice(i, i + blocksPerRow).join(" "));
+  return rows.join("\n");
+}
+
 document.getElementById("seqInput").addEventListener("input", render);
+document.getElementById("seqInput").addEventListener("paste", (e) => {
+  // reformat into AlphaFold-style tens-grouped blocks right after paste completes
+  setTimeout(() => {
+    const el = document.getElementById("seqInput");
+    const cleaned = cleanSeq(el.value);
+    el.value = formatSequenceBlocks(cleaned);
+    render();
+  }, 0);
+});
 
 document.querySelectorAll(".switch").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -635,8 +906,94 @@ document.getElementById("clearMut").addEventListener("click", () => {
   render();
 });
 
-initCharts();
-render();
+// ---- export: PNG of the current property trace, CSV of the full per-residue table ----
+function downloadBlob(content, filename, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("downloadPng").addEventListener("click", () => {
+  if (!lineChart || !currentSeq) return;
+  const src = lineChart.canvas;
+  const dpr = window.devicePixelRatio || 1;
+  const titleBandHeight = Math.round(64 * dpr);
+
+  const out = document.createElement("canvas");
+  out.width = src.width;
+  out.height = src.height + titleBandHeight;
+  const ctx = out.getContext("2d");
+
+  // background
+  ctx.fillStyle = "#121D25";
+  ctx.fillRect(0, 0, out.width, out.height);
+
+  // title band: property name (left) + sequence length (right)
+  const pad = 20 * dpr;
+  ctx.textBaseline = "middle";
+  ctx.font = `${Math.round(15 * dpr)}px 'Space Mono', monospace`;
+  ctx.fillStyle = "#6EE7C8";
+  ctx.fillText(FIELD_LABELS[state.field], pad, titleBandHeight / 2);
+
+  ctx.font = `${Math.round(13 * dpr)}px 'Space Mono', monospace`;
+  ctx.fillStyle = "#6E8791";
+  const nText = `n = ${currentSeq.length} residues`;
+  const nWidth = ctx.measureText(nText).width;
+  ctx.fillText(nText, out.width - pad - nWidth, titleBandHeight / 2);
+
+  // chart image below the title band
+  ctx.drawImage(src, 0, titleBandHeight);
+
+  const url = out.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${state.field}_trace.png`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+});
+
+document.getElementById("downloadCsv").addEventListener("click", () => {
+  if (!currentSeq) return;
+  const win = Math.max(1, state.window | 1);
+  const header = ["position", "residue", ...FIELDS, ...FIELDS.map(f => `${f}_smoothed`)];
+
+  const rawByField = {};
+  const smoothedByField = {};
+  for (const f of FIELDS) {
+    rawByField[f] = [...currentSeq].map(r => AA[r][f]);
+    smoothedByField[f] = smooth(rawByField[f], win);
+  }
+
+  const rows = [header.join(",")];
+  for (let i = 0; i < currentSeq.length; i++) {
+    const res = currentSeq[i];
+    const raw = FIELDS.map(f => rawByField[f][i]);
+    const smoothedVals = FIELDS.map(f => smoothedByField[f][i]);
+    rows.push([i + 1, res, ...raw, ...smoothedVals].join(","));
+  }
+  downloadBlob(rows.join("\n"), "aa_property_profile.csv", "text/csv");
+});
+
+try {
+  if (typeof Chart === "undefined") {
+    throw new Error("Chart.js failed to load from CDN.");
+  }
+  const seqEl = document.getElementById("seqInput");
+  seqEl.value = formatSequenceBlocks(cleanSeq(seqEl.value));
+  initCharts();
+  render();
+} catch (err) {
+  document.querySelector(".chart-shell").innerHTML =
+    `<p style="padding:20px; color:#FF8B66; font-family:'Space Mono',monospace; font-size:0.8rem;">Chart library failed to load (${err.message}). Check your internet connection and refresh — if this persists, the CDN link may need updating.</p>`;
+  console.error(err);
+}
 </script>
 </body>
 </html>
