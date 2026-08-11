@@ -1,5 +1,9 @@
 # aa-property-explorer
 
+[![Tests](https://github.com/yiweidavidchen/aa-property-explorer/actions/workflows/tests.yml/badge.svg)](https://github.com/yiweidavidchen/aa-property-explorer/actions/workflows/tests.yml)
+
+**[Try it live →](https://yiweidavidchen.github.io/aa-property-explorer/)** — paste a sequence, pick a property, and optionally test a point mutation, right in the browser. No install needed.
+
 Visualize amino acid physicochemical properties along a protein sequence,
 or compare whole-sequence composition across two or more proteins.
 
